@@ -9,7 +9,7 @@ local MEMORY_SIZE = 3 -- Size of each memory slot
 local CONTROLLER_SIZE = 5
 local SHIFT_SIZE = 1
 
--- Test the NTM module
+-- Test the NTM model
 print('----------------------------')
 print('-----------Inputs-----------')
 print('----------------------------')
@@ -47,7 +47,7 @@ testWriteWeightsP[10] = 0.1
 print('Previous Write Weights:')
 print(testWriteWeightsP)
 
-local module = ntm.NTM(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE)
+local model = ntm.NTMCell(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE)
 
 -- Forward pass
 print('----------------------------')
@@ -55,7 +55,7 @@ print('-----------Output-----------')
 print('----------------------------')
 print('')
 
-local out = module:forward{testInput, testDataReadP, testMemoryP, testReadWeightsP, testWriteWeightsP}
+local out = model:forward{testInput, testDataReadP, testMemoryP, testReadWeightsP, testWriteWeightsP}
 
 local testOutput = out[1]
 print('Output:')
