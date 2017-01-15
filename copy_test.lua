@@ -26,7 +26,7 @@ local writeWeights = torch.Tensor(MEMORY_SLOTS):zero()
 local model = ntm.NTM(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE, TEMPORAL_HORIZON)
 
 -- Create the criterion
-criterion = nn.ParallelCriterion()
+local criterion = nn.ParallelCriterion()
 for t = 1, TEMPORAL_HORIZON do
     criterion:add(nn.MSECriterion())
 end
@@ -34,31 +34,35 @@ end
 -- Gradient descent
 
 -- Hyper-paramètres
-local learning_rate = 0.01
-local max_epoch = 200
+local learning_rate = 0.1
+local max_epoch = 400
+local minibatch_size = 1
 local all_losses = {}
 
 for iteration = 1, max_epoch do
     model:zeroGradParameters()
 
-    -- Select slice (of size TEMPORAL_HORIZON) of the global input as a training sample
-    local idx = math.random(1, INPUT_LENGTH - TEMPORAL_HORIZON + 1)
+    local loss = 0
+    for k = 1, minibatch_size do
+        -- Select slice (of size TEMPORAL_HORIZON) of the global input as a training sample
+        local idx = math.random(1, INPUT_LENGTH - TEMPORAL_HORIZON + 1)
 
-    local sample = input[{{idx, idx + TEMPORAL_HORIZON - 1}}]
-    modelInput = ntm.prepareModelInput(sample, dataRead, memory, readWeights, writeWeights)
+        local sample = input[{{idx, idx + TEMPORAL_HORIZON - 1}}]
+        local modelInput = ntm.prepareModelInput(sample, dataRead, memory, readWeights, writeWeights)
 
-    -- Forward
-    modelOutput = model:forward(modelInput)
-    output = ntm.unpackModelOutput(modelOutput, TEMPORAL_HORIZON)
+        -- Forward
+        local modelOutput = model:forward(modelInput)
+        local output = ntm.unpackModelOutput(modelOutput, TEMPORAL_HORIZON)
 
-    -- Target output is the same as input
-    local loss = criterion:forward(output, sample) / (TEMPORAL_HORIZON * INPUT_SIZE)
+        -- Target output is the same as input
+        loss = loss + criterion:forward(output, sample) / (TEMPORAL_HORIZON * INPUT_SIZE * minibatch_size)
 
-    -- Backward
-    local delta = criterion:backward(output, sample)
-    -- Prepare delta essentially like the input, but with zeros for delta on everything except the model's output
-    modelDelta = ntm.prepareModelInput(delta, dataRead, memory, readWeights, writeWeights)
-    model:backward(modelInput, modelDelta)
+        -- Backward
+        local delta = criterion:backward(output, sample) / (TEMPORAL_HORIZON * INPUT_SIZE * minibatch_size)
+        -- Prepare delta essentially like the input, but with zeros for delta on everything except the model's output
+        local modelDelta = ntm.prepareModelInput(delta, dataRead, memory, readWeights, writeWeights)
+        model:backward(modelInput, modelDelta)
+    end
     model:updateParameters(learning_rate)
 
     print('After epoch ' .. iteration .. ', loss is ' .. loss)
