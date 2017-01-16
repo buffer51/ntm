@@ -46,7 +46,7 @@ local function NTMCell(input_size, output_size, memory_slots, memory_size, contr
     }
 
     -- Output
-    local output = nn.Tanh()(nn.Linear(controller_size, output_size)(controllerOutput))
+    local output = nn.Sigmoid()(nn.Linear(controller_size, output_size)(controllerOutput))
     output:annotate{
         name = 'output', description = 'Output',
         graphAttributes = {style = 'filled', fillcolor = 'red'}
