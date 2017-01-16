@@ -1,4 +1,5 @@
 require 'nn'
+require 'optim'
 require 'gnuplot'
 local ntm = require 'ntm'
 
@@ -16,8 +17,13 @@ local TEMPORAL_HORIZON = 2 * COPY_SIZE + 1
 -- Other inputs of the NTM are zeros
 local dataRead = torch.Tensor(MEMORY_SIZE):zero()
 local memory = torch.Tensor(MEMORY_SLOTS, MEMORY_SIZE):zero()
-local readWeights = torch.Tensor(MEMORY_SLOTS):zero()
-local writeWeights = torch.Tensor(MEMORY_SLOTS):zero()
+-- local readWeights = torch.Tensor(MEMORY_SLOTS):zero()
+-- local writeWeights = torch.Tensor(MEMORY_SLOTS):zero()
+
+-- Initialize read/write weights to a vector that stimulates
+-- reading/writing at slot 1 first
+local readWeights = nn.SoftMax():forward(torch.range(MEMORY_SLOTS, 1, -1))
+local writeWeights = readWeights:clone()
 
 -- Create the model
 local model = ntm.NTM(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE, TEMPORAL_HORIZON)
@@ -28,18 +34,22 @@ local criterion = nn.BCECriterion()
 -- Gradient descent
 
 -- Hyper-paramètres
-local learning_rate = 0.01
-local max_epoch = 20
-local minibatch_size = 10
-local all_losses = {}
+local confi = {
+    learningRate = 1e-4,
+    momentum = 0.9,
+    decay = 0.95
+}
+local maxEpoch = 5000
+local allLosses = {}
 
+local params, gradParams = model:getParameters()
 local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
 local delta = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
-for iteration = 1, max_epoch do
-    model:zeroGradParameters()
 
-    local loss = 0
-    for k = 1, minibatch_size do
+for iteration = 1, maxEpoch do
+    function feval(params)
+        gradParams:zero()
+
         -- Generate random data to copy
         input:zero()
         local input_length = math.random(1, COPY_SIZE)
@@ -56,24 +66,23 @@ for iteration = 1, max_epoch do
         output = output[{{input_length + 2, 2 * input_length + 1}}]
         local target = input[{{1, input_length}}]
 
-        loss = loss + criterion:forward(output, target) / minibatch_size
+        local loss = criterion:forward(output, target)
 
         -- -- Backward
         delta:zero()
-        delta[{{input_length + 2, 2 * input_length + 1}}] = criterion:backward(output, target) / minibatch_size
+        delta[{{input_length + 2, 2 * input_length + 1}}] = criterion:backward(output, target)
 
         -- Prepare delta essentially like the input, but with zeros for delta on everything except the model's output
         local modelDelta = ntm.prepareModelInput(delta, dataRead, memory, readWeights, writeWeights)
         model:backward(modelInput, modelDelta)
 
-        if iteration == max_epoch and k == minibatch_size then
-            print(target)
-            print(output)
-        end
+        return loss, gradParams
     end
-    model:updateParameters(learning_rate)
+
+    local _, loss = optim.rmsprop(feval, params, config)
+    loss = loss[1]
 
     print('After epoch ' .. iteration .. ', loss is ' .. loss)
-    all_losses[iteration] = loss
+    allLosses[iteration] = loss
 end
-gnuplot.plot(torch.Tensor(all_losses))
+gnuplot.plot(torch.Tensor(allLosses))
