@@ -34,7 +34,7 @@ local criterion = nn.BCECriterion()
 -- Gradient descent
 
 -- Hyper-paramètres
-local confi = {
+local config = {
     learningRate = 1e-4,
     momentum = 0.9,
     decay = 0.95
