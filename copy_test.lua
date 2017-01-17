@@ -4,15 +4,15 @@ ntm = require 'ntm'
 require 'rmsprop'
 
 -- Parameters
-local INPUT_SIZE = 5 + 2
-local OUTPUT_SIZE = 5 + 2
+local INPUT_SIZE = 5 + 1
+local OUTPUT_SIZE = 5 + 1
 local MEMORY_SLOTS = 128 -- Number of addressable slots in memory
 local MEMORY_SIZE = 20 -- Size of each memory slot
 local CONTROLLER_SIZE = 100
 local SHIFT_SIZE = 1
 
 local COPY_SIZE = 20
-local TEMPORAL_HORIZON = 2 + 2 * COPY_SIZE
+local TEMPORAL_HORIZON = 1 + 2 * COPY_SIZE
 
 -- Other inputs of the NTM are zeros
 local dataRead = torch.Tensor(MEMORY_SIZE):zero()
@@ -54,9 +54,8 @@ for iteration = 1, maxEpoch do
         -- Generate random data to copy
         input:zero()
         local input_length = math.random(1, COPY_SIZE)
-        input[1][1] = 1
-        input[{{2, 1 + input_length}, {3, INPUT_SIZE}}]:random(0, 1)
-        input[1 + input_length + 1][2] = 1
+        input[{{1, input_length}, {2, INPUT_SIZE}}]:random(0, 1)
+        input[input_length + 1][1] = 1 -- end delimiter
 
         local modelInput = ntm.prepareModelInput(input, dataRead, memory, readWeights, writeWeights)
 
@@ -65,14 +64,14 @@ for iteration = 1, maxEpoch do
         output = ntm.unpackModelOutput(modelOutput, TEMPORAL_HORIZON)
 
         -- Target output is the same as input
-        output = output[{{1 + input_length + 2, 2 + 2 * input_length}}]
-        target = input[{{2, 1 + input_length}}]
+        output = output[{{input_length + 2, 1 + 2 * input_length}}]
+        target = input[{{1, input_length}}]
 
         local loss = criterion:forward(output, target)
 
         -- -- Backward
         delta:zero()
-        delta[{{1 + input_length + 2, 2 + 2 * input_length}}] = criterion:backward(output, target)
+        delta[{{input_length + 2, 1 + 2 * input_length}}] = criterion:backward(output, target)
         delta:mul(input_length)
 
         -- Prepare delta essentially like the input, but with zeros for delta on everything except the model's output
