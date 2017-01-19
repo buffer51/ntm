@@ -3,6 +3,20 @@ require 'gnuplot'
 ntm = require 'ntm'
 require 'rmsprop'
 
+
+--[[
+
+This NTM is trained to copy an array of random bits.
+The size of the array is chosen at random each time, and we add an end delimiter on a separate channel (here, column).
+
+0  1  0  0  0  0   tensor to copy
+0  1  1  0  1  0   tensor to copy
+0  1  0  1  1  1   tensor to copy
+1  0  0  0  0  0   end deliminter, column 1
+
+
+]]--
+
 -- Parameters
 local INPUT_SIZE = 5 + 1
 local OUTPUT_SIZE = 5 + 1
