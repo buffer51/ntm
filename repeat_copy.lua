@@ -9,6 +9,15 @@ The aim of this NTM is to repeat a tensor a number of times, like in a for loop.
 We give a tensor of random(0,1) as input, with a int on a specific channel (column) to give the number of copies.
 Then, we give an end delimiter on another specific column.
 
+Example of input:
+
+3  0  0  0  0  0  0   Number of copies to make, column 1
+0  0  1  0  0  0  0   tensor to copy
+0  0  1  1  0  1  0   tensor to copy
+0  0  1  0  1  1  1   tensor to copy
+0  1  0  0  0  0  0   end deliminter, column 2
+
+
 ]]--
 
 
@@ -64,8 +73,8 @@ for iteration = 1, maxEpoch do
         numberOfCopy = math.random(1, MAX_NUMBER_0F_COPY)
         local inputLength = math.random(1, COPY_SIZE / MAX_NUMBER_0F_COPY)
 
-        input[{{1, inputLength}, {3, INPUT_SIZE}}]:random(0, 1)
-        input[inputLength + 1][1] = numberOfCopy -- number of copies
+        input[{{2, inputLength + 1}, {3, INPUT_SIZE}}]:random(0, 1)
+        input[1][1] = numberOfCopy -- number of copies
         input[inputLength + 2][2] = 1 -- end delimiter
 
         local modelInput = ntm.prepareModelInput(input, dataRead, memory, readWeights, writeWeights)
@@ -75,7 +84,7 @@ for iteration = 1, maxEpoch do
         output = ntm.unpackModelOutput(modelOutput, TEMPORAL_HORIZON)
 
         output = output[{{2 + inputLength + 2, 3 + inputLength * (numberOfCopy + 1)}}]
-        cell = input[{{1, inputLength}}]
+        cell = input[{{2, inputLength + 1}}]
 
         target = torch.repeatTensor(cell, numberOfCopy, 1)
 
