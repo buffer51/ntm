@@ -1,7 +1,7 @@
 require 'nn'
 require 'gnuplot'
-ntm = require 'ntm'
-require 'rmsprop'
+ntm = require '../models/ntm'
+require '../models/rmsprop'
 
 --[[
 

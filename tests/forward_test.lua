@@ -1,5 +1,5 @@
 require 'nn'
-local ntm = require 'ntm'
+local ntm = require '../models/ntm'
 
 -- Parameters
 local INPUT_SIZE = 4

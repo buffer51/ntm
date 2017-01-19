@@ -1,11 +1,12 @@
 require 'nn'
 require 'nngraph'
-require 'modules/ScalarMulTable'
-require 'modules/SmoothCosineSimilarity'
-require 'modules/CircularConvolution'
-require 'modules/PowTable'
-require 'modules/OuterProd'
-local model_utils = require 'model_utils'
+require '../modules/ScalarMulTable'
+require '../modules/SmoothCosineSimilarity'
+require '../modules/CircularConvolution'
+require '../modules/PowTable'
+require '../modules/OuterProd'
+
+local model_utils = require '../models/model_utils'
 
 local function NTMCell(input_size, output_size, memory_slots, memory_size, controller_size, shift_size)
     -- Inputs

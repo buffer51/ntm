@@ -1,7 +1,7 @@
 require 'nn'
 require 'gnuplot'
-ntm = require 'ntm'
-require 'rmsprop'
+ntm = require '../models/ntm'
+require '../models/rmsprop'
 
 
 --[[
@@ -13,7 +13,6 @@ The size of the array is chosen at random each time, and we add an end delimiter
 0  1  1  0  1  0   tensor to copy
 0  1  0  1  1  1   tensor to copy
 1  0  0  0  0  0   end deliminter, column 1
-
 
 ]]--
 
