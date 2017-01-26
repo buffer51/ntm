@@ -85,7 +85,7 @@ for iteration = 1, maxEpoch do
         -- -- Backward
         delta:zero()
         delta[{{input_length + 2, 1 + 2 * input_length}}] = criterion:backward(output, target)
-        -- delta:mul(input_length)
+        delta:mul(input_length)
 
         -- Prepare delta essentially like the input, but with zeros for delta on everything except the model's output
         local modelDelta = ntm.prepareModelInput(delta, dataRead, memory, readWeights, writeWeights)
