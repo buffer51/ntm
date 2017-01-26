@@ -4,3 +4,15 @@ This is a Torch implementation of Neural Turing Machines, from the [paper](https
 
 
 The `modules` directory contains utility functions
+
+# ROADMAP
+
+Experiments:
+- ✅ copy
+- 📦 repeat copy with fixed size
+- 📦 repeat copy with random size
+- 📦 sorting
+
+Controller:
+- ✅ feed forward
+- 📦 LSTM

@@ -51,11 +51,11 @@ local criterion = nn.BCECriterion()
 
 -- Meta parameters
 local config = {
-    learningRate = 1e-4,
+    learningRate = 1e-5,
     momentum = 0.9,
     decay = 0.95
 }
-local maxEpoch = 5000
+local maxEpoch = 10000
 local allLosses = {}
 
 local params, gradParams = model:getParameters()
@@ -93,7 +93,7 @@ for iteration = 1, maxEpoch do
         -- -- Backward
         delta:zero()
         delta[{{2 + inputLength + 2, 3 + inputLength * (numberOfCopy + 1)}}] = criterion:backward(output, target)
-        delta:mul(inputLength * numberOfCopy)
+        delta:mul(inputLength)
 
         -- Prepare delta essentially like the input, but with zeros for delta on everything except the model's output
         local modelDelta = ntm.prepareModelInput(delta, dataRead, memory, readWeights, writeWeights)
