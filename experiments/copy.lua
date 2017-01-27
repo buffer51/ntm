@@ -1,3 +1,4 @@
+cutorch = require 'cutorch'
 require 'nn'
 require 'gnuplot'
 ntm = require '../models/ntm'
@@ -28,21 +29,21 @@ local COPY_SIZE = 20
 local TEMPORAL_HORIZON = 1 + 2 * COPY_SIZE
 
 -- Other inputs of the NTM are zeros
-local dataRead = torch.Tensor(MEMORY_SIZE):zero()
-local memory = torch.Tensor(MEMORY_SLOTS, MEMORY_SIZE):zero()
--- local readWeights = torch.Tensor(MEMORY_SLOTS):zero()
--- local writeWeights = torch.Tensor(MEMORY_SLOTS):zero()
+local dataRead = torch.CudaTensor(MEMORY_SIZE):zero()
+local memory = torch.CudaTensor(MEMORY_SLOTS, MEMORY_SIZE):zero()
+-- local readWeights = torch.CudaTensor(MEMORY_SLOTS):zero()
+-- local writeWeights = torch.CudaTensor(MEMORY_SLOTS):zero()
 
 -- Initialize read/write weights to a vector that stimulates
 -- reading/writing at slot 1 first
-local readWeights = nn.SoftMax():forward(torch.range(MEMORY_SLOTS, 1, -1))
+local readWeights = nn.SoftMax():forward(torch.range(MEMORY_SLOTS, 1, -1)):cuda()
 local writeWeights = readWeights:clone()
 
 -- Create the model
 local model = ntm.NTM(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE, TEMPORAL_HORIZON)
 
 -- Create the criterions
-local criterion = nn.BCECriterion()
+local criterion = nn.BCECriterion():cuda()
 
 -- Gradient descent
 
@@ -52,12 +53,13 @@ local config = {
     momentum = 0.9,
     decay = 0.95
 }
-local maxEpoch = 100
+local maxEpoch = 25
 local allLosses = {}
 
 local params, gradParams = model:getParameters()
 local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
-local delta = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
+local cudaInput
+local delta = torch.CudaTensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
 local output, target
 
 startTime = os.clock()
@@ -70,8 +72,9 @@ for iteration = 1, maxEpoch do
         local input_length = math.random(1, COPY_SIZE)
         input[{{1, input_length}, {2, INPUT_SIZE}}]:random(0, 1)
         input[input_length + 1][1] = 1 -- end delimiter
+        cudaInput = input:cuda()
 
-        local modelInput = ntm.prepareModelInput(input, dataRead, memory, readWeights, writeWeights)
+        local modelInput = ntm.prepareModelInput(cudaInput, dataRead, memory, readWeights, writeWeights)
 
         -- Forward
         local modelOutput = model:forward(modelInput)
@@ -79,7 +82,7 @@ for iteration = 1, maxEpoch do
 
         -- Target output is the same as input
         output = output[{{input_length + 2, 1 + 2 * input_length}}]
-        target = input[{{1, input_length}}]
+        target = cudaInput[{{1, input_length}}]
 
         local loss = criterion:forward(output, target)
 

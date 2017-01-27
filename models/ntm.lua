@@ -1,4 +1,6 @@
+cutorch = require 'cutorch'
 require 'nn'
+require 'cunn'
 require 'nngraph'
 require '../modules/ScalarMulTable'
 require '../modules/SmoothCosineSimilarity'
@@ -147,7 +149,7 @@ local function prepareModelInput(input, dataRead, memory, readWeights, writeWeig
 end
 
 local function unpackModelOutput(modelOutput, temporal_horizon)
-    local output = torch.Tensor(temporal_horizon, modelOutput[1]:size(1)):zero()
+    local output = torch.CudaTensor(temporal_horizon, modelOutput[1]:size(1)):zero()
 
     for i = 1, temporal_horizon do
         output[i] = modelOutput[i]
@@ -218,7 +220,7 @@ local function NTM(input_size, output_size, memory_slots, memory_size, controlle
     local modelInput = concatenateTables({inputs, {dataReads[1], memorys[1], readWeightss[1], writeWeightss[1]}})
     local modelOutput = concatenateTables({outputs, {dataReads[temporal_horizon+1], memorys[temporal_horizon+1], readWeightss[temporal_horizon+1], writeWeightss[temporal_horizon+1]}})
 
-    return nn.gModule(modelInput, modelOutput)
+    return nn.gModule(modelInput, modelOutput):cuda()
 end
 
 -- Example with graph
