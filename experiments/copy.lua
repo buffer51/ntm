@@ -52,7 +52,7 @@ local config = {
     momentum = 0.9,
     decay = 0.95
 }
-local maxEpoch = 5000
+local maxEpoch = 100
 local allLosses = {}
 
 local params, gradParams = model:getParameters()
@@ -60,6 +60,7 @@ local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
 local delta = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
 local output, target
 
+startTime = os.clock()
 for iteration = 1, maxEpoch do
     function feval(params)
         gradParams:zero()
@@ -108,4 +109,5 @@ for iteration = 1, maxEpoch do
     end
     allLosses[iteration] = loss
 end
+print('Elapsed time is: ' .. os.clock() - startTime)
 gnuplot.plot(torch.Tensor(allLosses))
