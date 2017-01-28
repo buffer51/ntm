@@ -71,7 +71,7 @@ for iteration = 1, maxEpoch do
         input:zero()
 
         numberOfCopy = math.random(1, MAX_NUMBER_0F_COPY)
-        local inputLength = math.random(1, COPY_SIZE / MAX_NUMBER_0F_COPY)
+        local inputLength = 2
 
         input[{{2, inputLength + 1}, {3, INPUT_SIZE}}]:random(0, 1)
         input[1][1] = numberOfCopy -- number of copies
@@ -93,7 +93,7 @@ for iteration = 1, maxEpoch do
         -- -- Backward
         delta:zero()
         delta[{{2 + inputLength + 2, 3 + inputLength * (numberOfCopy + 1)}}] = criterion:backward(output, target)
-        delta:mul(inputLength * numberOfCopy)
+        delta:mul(numberOfCopy)
 
         -- Prepare delta essentially like the input, but with zeros for delta on everything except the model's output
         local modelDelta = ntm.prepareModelInput(delta, dataRead, memory, readWeights, writeWeights)
