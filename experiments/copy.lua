@@ -45,6 +45,8 @@ local SHIFT_SIZE = 1
 local TEMPORAL_HORIZON = 1 + 2 * COPY_LENGTH
 
 -- Initialization
+math.randomseed(os.time())
+
 local dataRead = torch.Tensor(MEMORY_SIZE):zero()
 local memory = torch.Tensor(MEMORY_SLOTS, MEMORY_SIZE):zero()
 -- Initialize read/write weights to a vector that stimulates
