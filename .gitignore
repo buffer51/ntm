@@ -1,4 +1,7 @@
 NTM.dot
 NTM.svg
-model.dot
-model.svg
+model*.dot
+model*.svg
+
+# Saved models
+*.mdl*
