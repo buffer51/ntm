@@ -2,7 +2,6 @@ require 'nn'
 require 'optim'
 require 'gnuplot'
 ntm = require '../models/ntm'
-require '../models/rmsprop'
 
 
 --[[
