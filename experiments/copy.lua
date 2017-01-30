@@ -26,40 +26,43 @@ function file_exists(filename)
    end
 end
 
--- Parameters
-local INPUT_SIZE = 1 + 1
-local OUTPUT_SIZE = INPUT_SIZE - 1
+-- Task parameters
+local COPY_SIZE = 1 -- Width of copied sequences
+local COPY_LENGTH = 5 -- Maximum length of copied sequences
+
+-- Control variables
+local train = true -- Set to true for training, false for evaluation only
+local loadFilename = 'saves/to_load.mdl' -- If not nil, will be loaded (for evaluation or further training)
+local saveFilename = 'saves/copy.mdl' -- Filename of saves
+
+-- NTM Parameters
+local INPUT_SIZE = 1 + COPY_SIZE
+local OUTPUT_SIZE = COPY_SIZE
 local MEMORY_SLOTS = 20 -- Number of addressable slots in memory
 local MEMORY_SIZE = 4 -- Size of each memory slot
 local CONTROLLER_SIZE = 20
 local SHIFT_SIZE = 1
+local TEMPORAL_HORIZON = 1 + 2 * COPY_LENGTH
 
-local COPY_SIZE = 5
-local TEMPORAL_HORIZON = 1 + 2 * COPY_SIZE
-
--- Other inputs of the NTM are zeros
+-- Initialization
 local dataRead = torch.Tensor(MEMORY_SIZE):zero()
 local memory = torch.Tensor(MEMORY_SLOTS, MEMORY_SIZE):zero()
--- local readWeights = torch.Tensor(MEMORY_SLOTS):zero()
--- local writeWeights = torch.Tensor(MEMORY_SLOTS):zero()
-
 -- Initialize read/write weights to a vector that stimulates
 -- reading/writing at slot 1 first
 local readWeights = torch.Tensor(MEMORY_SLOTS):zero()
 readWeights[1] = 1.0
 local writeWeights = readWeights:clone()
 
--- Create the criterions
+-- Create the criterion
 local criterion = nn.BCECriterion()
 
-local train = true
-local saveFilename = 'saves/copy.mdl'
-
--- Create the model
+-- Create the models
 models = ntm.NTM(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE, TEMPORAL_HORIZON)
-if file_exists(saveFilename) then
-    print('Loaded model from ' .. saveFilename)
-    temp = torch.load(saveFilename)
+
+-- Load existing model, if set
+if loadFilename and file_exists(loadFilename) then
+    print('Loaded model from ' .. loadFilename)
+    temp = torch.load(loadFilename)
     local tempParams, _ = temp:getParameters()
     local modelParams, _ = models[TEMPORAL_HORIZON]:getParameters()
     modelParams:copy(tempParams)
@@ -68,19 +71,27 @@ end
 if train then
     -- Gradient descent
 
-    -- Hyper-paramètres
+    -- Hyper parameters
     local config = {
         learningRate = 1e-3,
-        momentum = 0.9,
-        decay = 0.95,
-        alpha = 0.9 -- decay for optim.rmsprop
+        alpha = 0.9
     }
-    local allLosses = {}
-    local incremental = true
-    local iterationsPerIncrement = 4000
 
-    local maxLength = incremental and 1 or COPY_SIZE
-    local maxEpoch = incremental and (iterationsPerIncrement * COPY_SIZE * (COPY_SIZE + 1) / 2) or 60000
+    -- Type of training to use
+    local incremental = true -- If true, will train on sequences of increasing length
+
+    local maxEpoch, maxLength
+    if incremental then
+        iterationsPerIncrement = 4000
+        lastChange = 0
+
+        -- Start with sequences of length 1, and slowly increase
+        maxLength = 1
+        maxEpoch = iterationsPerIncrement * COPY_LENGTH * (COPY_LENGTH + 1) / 2
+    else
+        maxLength = COPY_LENGTH
+        maxEpoch = 60000
+    end
 
     local params, gradParams = models[TEMPORAL_HORIZON]:getParameters()
     local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
@@ -88,20 +99,21 @@ if train then
     local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
     local output
 
-    local avgLoss = 0.0
+    -- Reporting
+    local reportingStep = 50
+    local avgLoss = 0.0 -- Running average of loss
     local avgMinLoss = 0.0
     local avgMaxLoss = 0.0
-    local avgDecay = 1.0 / 25
-    local allAvgLoss = {}
-    local allAvgMinLoss = {}
-    local allAvgMaxLoss = {}
+    local avgDecay = 1.0 / reportingStep
+    local allLosses = {}
+    local allAvgLosses = {}
+    local allAvgMinLosses = {}
+    local allAvgMaxLosses = {}
 
-    lastChange = 0
     for iteration = 1, maxEpoch do
         if incremental and ((iteration - lastChange) % (maxLength * iterationsPerIncrement) == 0) then
             lastChange = iteration
-            maxLength = math.min(COPY_SIZE, maxLength + 1)
-            print('Change at ' .. iteration .. ' to ' .. maxLength)
+            maxLength = math.min(COPY_LENGTH, maxLength + 1)
         end
 
         function feval(params)
@@ -125,12 +137,10 @@ if train then
             target:zero()
             target[{{input_length + 2, 1 + 2 * input_length}}] = input[{{1, input_length}, {2, INPUT_SIZE}}]
 
-            -- output:clamp(1e-10, 1.0 - 1e-10) -- Clamp the output to prevent huge BCE loss
             local loss = criterion:forward(output, target[{{1, currentModelSize}}])
 
             -- -- Backward
             delta = criterion:backward(output, target[{{1, currentModelSize}}])
-            -- delta:mul(input_length)
 
             -- Prepare delta essentially like the input, but with zeros for delta on everything except the model's output
             local modelDelta = ntm.prepareModelInput(delta, dataRead, memory, readWeights, writeWeights)
@@ -145,7 +155,7 @@ if train then
         avgMinLoss = math.min(loss, avgDecay * loss + (1.0 - avgDecay) * avgMinLoss)
         avgMaxLoss = math.max(loss, avgDecay * loss + (1.0 - avgDecay) * avgMaxLoss)
 
-        if iteration % 25 == 0 then
+        if iteration % reportingStep == 0 then
             print('After epoch ' .. iteration .. ', loss is ' .. loss)
             print('Average loss: ' .. avgLoss)
             print('Learning rate: ' .. config.learningRate)
@@ -156,10 +166,10 @@ if train then
             print(target[{{1, currentModelSize}}])
             print('')
 
-            allLosses[iteration/25] = loss
-            allAvgLoss[iteration/25] = avgLoss
-            allAvgMinLoss[iteration/25] = avgMinLoss
-            allAvgMaxLoss[iteration/25] = avgMaxLoss
+            allLosses[iteration/reportingStep] = loss
+            allAvgLosses[iteration/reportingStep] = avgLoss
+            allAvgMinLosses[iteration/reportingStep] = avgMinLoss
+            allAvgMaxLosses[iteration/reportingStep] = avgMaxLoss
         end
 
         if iteration % 10000 == 0 then
@@ -169,14 +179,14 @@ if train then
     end
 
     allLosses = torch.Tensor(allLosses):log()
-    allAvgLoss = torch.Tensor(allAvgLoss):log()
-    allAvgMinLoss = torch.Tensor(allAvgMinLoss):log()
-    allAvgMaxLoss = torch.Tensor(allAvgMaxLoss):log()
+    allAvgLosses = torch.Tensor(allAvgLosses):log()
+    allAvgMinLosses = torch.Tensor(allAvgMinLosses):log()
+    allAvgMaxLosses = torch.Tensor(allAvgMaxLosses):log()
 
-    x = torch.range(1, maxEpoch, 25)
-    yy = torch.cat(x, allAvgMinLoss, 2)
-    yy = torch.cat(yy, allAvgMaxLoss, 2)
-    gnuplot.plot({yy, 'with filledcurves fill transparent solid 0.5'}, {x, allAvgMaxLoss, 'with lines ls 1'}, {x, allAvgMinLoss, 'with lines ls 1'}, {x, allAvgLoss, 'with lines ls 1'})
+    x = torch.range(reportingStep, maxEpoch, reportingStep)
+    yy = torch.cat(x, allAvgMinLosses, 2)
+    yy = torch.cat(yy, allAvgMaxLosses, 2)
+    gnuplot.plot({yy, 'with filledcurves fill transparent solid 0.5'}, {x, allAvgMaxLosses, 'with lines ls 1'}, {x, allAvgMinLosses, 'with lines ls 1'}, {x, allAvgLosses, 'with lines ls 1'})
 
     torch.save(saveFilename, models[TEMPORAL_HORIZON])
     print('Saved model to ' .. saveFilename)
@@ -194,7 +204,7 @@ local sumSqrLoss = 0.0
 for iteration = 1, numEvaluations do
     -- Generate random data to copy
     input:zero()
-    local input_length = math.random(1, COPY_SIZE)
+    local input_length = math.random(1, COPY_LENGTH)
     local currentModelSize = 1 + 2 * input_length
     model = models[currentModelSize]
     input[{{1, input_length}, {2, INPUT_SIZE}}]:random(0, 1)
