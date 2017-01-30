@@ -121,11 +121,11 @@ if train then
 
             -- Generate random data to copy
             input:zero()
-            local input_length = math.random(1, maxLength)
-            currentModelSize = 1 + 2 * input_length
+            local inputLength = math.random(1, maxLength)
+            currentModelSize = 1 + 2 * inputLength
             model = models[currentModelSize]
-            input[{{1, input_length}, {2, INPUT_SIZE}}]:random(0, 1)
-            input[input_length + 1][1] = 1 -- end delimiter
+            input[{{1, inputLength}, {2, INPUT_SIZE}}]:random(0, 1)
+            input[inputLength + 1][1] = 1 -- end delimiter
 
             local modelInput = ntm.prepareModelInput(input[{{1, currentModelSize}}], dataRead, memory, readWeights, writeWeights)
 
@@ -135,7 +135,7 @@ if train then
 
             -- Target output is the same as input
             target:zero()
-            target[{{input_length + 2, 1 + 2 * input_length}}] = input[{{1, input_length}, {2, INPUT_SIZE}}]
+            target[{{inputLength + 2, 1 + 2 * inputLength}}] = input[{{1, inputLength}, {2, INPUT_SIZE}}]
 
             local loss = criterion:forward(output, target[{{1, currentModelSize}}])
 
@@ -204,11 +204,11 @@ local sumSqrLoss = 0.0
 for iteration = 1, numEvaluations do
     -- Generate random data to copy
     input:zero()
-    local input_length = math.random(1, COPY_LENGTH)
-    local currentModelSize = 1 + 2 * input_length
+    local inputLength = math.random(1, COPY_LENGTH)
+    local currentModelSize = 1 + 2 * inputLength
     model = models[currentModelSize]
-    input[{{1, input_length}, {2, INPUT_SIZE}}]:random(0, 1)
-    input[input_length + 1][1] = 1 -- end delimiter
+    input[{{1, inputLength}, {2, INPUT_SIZE}}]:random(0, 1)
+    input[inputLength + 1][1] = 1 -- end delimiter
 
     local modelInput = ntm.prepareModelInput(input[{{1, currentModelSize}}], dataRead, memory, readWeights, writeWeights)
 
@@ -218,7 +218,7 @@ for iteration = 1, numEvaluations do
 
     -- Target output is the same as input
     target:zero()
-    target[{{input_length + 2, 1 + 2 * input_length}}] = input[{{1, input_length}, {2, INPUT_SIZE}}]
+    target[{{inputLength + 2, 1 + 2 * inputLength}}] = input[{{1, inputLength}, {2, INPUT_SIZE}}]
 
     local loss = criterion:forward(output, target[{{1, currentModelSize}}])
     sumLoss = sumLoss + loss
