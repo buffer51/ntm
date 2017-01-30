@@ -1,4 +1,5 @@
 require 'nn'
+require 'optim'
 require 'gnuplot'
 ntm = require '../models/ntm'
 require '../models/rmsprop'
@@ -38,74 +39,95 @@ local memory = torch.Tensor(MEMORY_SLOTS, MEMORY_SIZE):zero()
 local readWeights = nn.SoftMax():forward(torch.range(MEMORY_SLOTS, 1, -1))
 local writeWeights = readWeights:clone()
 
--- Create the model
-local model = ntm.NTM(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE, TEMPORAL_HORIZON)
-
 -- Create the criterions
 local criterion = nn.BCECriterion()
 
--- Gradient descent
+local train = true
+local saveFilename = 'saves/copy.mdl'
 
--- Hyper-paramètres
-local config = {
-    learningRate = 1e-4,
-    momentum = 0.9,
-    decay = 0.95
-}
-local maxEpoch = 5000
-local allLosses = {}
-
-local params, gradParams = model:getParameters()
-local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
-local delta = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
-local output, target
-
-for iteration = 1, maxEpoch do
-    function feval(params)
-        gradParams:zero()
-
-        -- Generate random data to copy
-        input:zero()
-        local input_length = math.random(1, COPY_SIZE)
-        input[{{1, input_length}, {2, INPUT_SIZE}}]:random(0, 1)
-        input[input_length + 1][1] = 1 -- end delimiter
-
-        local modelInput = ntm.prepareModelInput(input, dataRead, memory, readWeights, writeWeights)
-
-        -- Forward
-        local modelOutput = model:forward(modelInput)
-        output = ntm.unpackModelOutput(modelOutput, TEMPORAL_HORIZON)
-
-        -- Target output is the same as input
-        output = output[{{input_length + 2, 1 + 2 * input_length}}]
-        target = input[{{1, input_length}}]
-
-        local loss = criterion:forward(output, target)
-
-        -- -- Backward
-        delta:zero()
-        delta[{{input_length + 2, 1 + 2 * input_length}}] = criterion:backward(output, target)
-        delta:mul(input_length)
-
-        -- Prepare delta essentially like the input, but with zeros for delta on everything except the model's output
-        local modelDelta = ntm.prepareModelInput(delta, dataRead, memory, readWeights, writeWeights)
-        model:backward(modelInput, modelDelta)
-
-        return loss, gradParams
-    end
-
-    local _, loss = ntm.rmsprop(feval, params, config)
-    loss = loss[1]
-
-    if iteration % 25 == 0 then
-        print('After epoch ' .. iteration .. ', loss is ' .. loss)
-        print('Grad: ' .. gradParams:min() .. ' ' .. gradParams:max())
-        print('Output:')
-        print(output)
-        print('Target:')
-        print(target)
-        print('')
-    end
-    allLosses[iteration] = loss
+-- Create the model
+models = ntm.NTM(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE, TEMPORAL_HORIZON)
+if file_exists(saveFilename) then
+    print('Loaded model from ' .. saveFilename)
+    temp = torch.load(saveFilename)
+    local tempParams, _ = temp:getParameters()
+    local modelParams, _ = models[TEMPORAL_HORIZON]:getParameters()
+    modelParams:copy(tempParams)
 end
-gnuplot.plot(torch.Tensor(allLosses))
+
+if train then
+    -- Gradient descent
+
+    -- Hyper-paramètres
+    local config = {
+        learningRate = 1e-4,
+        momentum = 0.9,
+        decay = 0.95
+    }
+    local maxEpoch = 5000
+    local allLosses = {}
+
+    local params, gradParams = models[TEMPORAL_HORIZON]:getParameters()
+    local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
+    local delta = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
+    local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
+    local output
+
+    for iteration = 1, maxEpoch do
+        function feval(params)
+            gradParams:zero()
+
+            -- Generate random data to copy
+            input:zero()
+            local input_length = math.random(1, COPY_SIZE)
+            currentModelSize = 1 + 2 * input_length
+            model = models[currentModelSize]
+            input[{{1, input_length}, {2, INPUT_SIZE}}]:random(0, 1)
+            input[input_length + 1][1] = 1 -- end delimiter
+
+            local modelInput = ntm.prepareModelInput(input[{{1, currentModelSize}}], dataRead, memory, readWeights, writeWeights)
+
+            -- Forward
+            local modelOutput = model:forward(modelInput)
+            output = ntm.unpackModelOutput(modelOutput, currentModelSize)
+
+            -- Target output is the same as input
+            target:zero()
+            target[{{input_length + 2, 1 + 2 * input_length}}] = input[{{1, input_length}, {2, INPUT_SIZE}}]
+
+            local loss = criterion:forward(output, target[{{1, currentModelSize}}])
+
+            -- -- Backward
+            delta = criterion:backward(output, target[{{1, currentModelSize}}])
+
+            -- Prepare delta essentially like the input, but with zeros for delta on everything except the model's output
+            local modelDelta = ntm.prepareModelInput(delta, dataRead, memory, readWeights, writeWeights)
+            model:backward(modelInput, modelDelta)
+
+            return loss, gradParams
+        end
+
+        local _, loss = ntm.rmsprop(feval, params, config)
+        loss = loss[1]
+
+        if iteration % 25 == 0 then
+            print('After epoch ' .. iteration .. ', loss is ' .. loss)
+            print('Grad: ' .. gradParams:min() .. ' ' .. gradParams:max())
+            print('Output:')
+            print(output)
+            print('Target:')
+            print(target[{{1, currentModelSize}}])
+            print('')
+        end
+
+        if iteration % 10000 == 0 then
+            torch.save(saveFilename .. '.' .. iteration, models[TEMPORAL_HORIZON])
+            print('Saved checkpoint to ' .. saveFilename .. '.' .. iteration)
+        end
+    end
+
+    gnuplot.plot(torch.Tensor(allLosses))
+
+    torch.save(saveFilename, models[TEMPORAL_HORIZON])
+    print('Saved model to ' .. saveFilename)
+end
