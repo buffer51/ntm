@@ -34,7 +34,7 @@ function file_exists(filename)
 end
 
 -- Task parameters
-local COPY_SIZE = 1 -- Width of copied sequences
+local COPY_SIZE = 4 -- Width of copied sequences
 local COPY_LENGTH = 5 -- Maximum length of copied sequences
 local REPEAT_TIMES = 3 -- Maximum number of repetitions
 
@@ -46,9 +46,9 @@ local saveFilename = 'saves/repeat_copy.mdl' -- Filename of saves
 -- NTM Parameters
 local INPUT_SIZE = 2 + COPY_SIZE
 local OUTPUT_SIZE = COPY_SIZE
-local MEMORY_SLOTS = 20 -- Number of addressable slots in memory
-local MEMORY_SIZE = 4 -- Size of each memory slot
-local CONTROLLER_SIZE = 20
+local MEMORY_SLOTS = 50 -- Number of addressable slots in memory
+local MEMORY_SIZE = 8 -- Size of each memory slot
+local CONTROLLER_SIZE = 50
 local SHIFT_SIZE = 1
 local TEMPORAL_HORIZON = 1 + REPEAT_TIMES + (1 + REPEAT_TIMES) * COPY_LENGTH
 
@@ -56,7 +56,7 @@ local TEMPORAL_HORIZON = 1 + REPEAT_TIMES + (1 + REPEAT_TIMES) * COPY_LENGTH
 math.randomseed(os.time())
 
 local dataRead = torch.Tensor(MEMORY_SIZE):zero()
-local memory = torch.Tensor(MEMORY_SLOTS, MEMORY_SIZE):zero()
+local memory = torch.Tensor(MEMORY_SLOTS, MEMORY_SIZE):fill(1e-6)
 -- Initialize read/write weights to a vector that stimulates
 -- reading/writing at slot 1 first
 local readWeights = torch.Tensor(MEMORY_SLOTS):zero()
@@ -87,21 +87,7 @@ if train then
         alpha = 0.9
     }
 
-    -- Type of training to use
-    local incremental = true -- If true, will train on sequences of increasing length
-
-    local maxEpoch, maxLength
-    if incremental then
-        iterationsPerIncrement = 4000
-        lastChange = 0
-
-        -- Start with sequences of length 1, and slowly increase
-        maxLength = 1
-        maxEpoch = iterationsPerIncrement * COPY_LENGTH * (COPY_LENGTH + 1) / 2
-    else
-        maxLength = COPY_LENGTH
-        maxEpoch = 60000
-    end
+    local maxEpoch = 100000
 
     local params, gradParams = models[TEMPORAL_HORIZON]:getParameters()
     local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
@@ -121,18 +107,13 @@ if train then
     local allAvgMaxLosses = {}
 
     for iteration = 1, maxEpoch do
-        if incremental and ((iteration - lastChange) % (maxLength * iterationsPerIncrement) == 0) then
-            lastChange = iteration
-            maxLength = math.min(COPY_LENGTH, maxLength + 1)
-        end
-
         function feval(params)
             gradParams:zero()
 
             -- Generate random data to copy
             input:zero()
-            local inputLength = math.random(1, maxLength)
-            local repetitions = math.random(1, REPEAT_TIMES)
+            inputLength = math.random(3, COPY_LENGTH) -- 3 or more
+            repetitions = math.random(1, REPEAT_TIMES)
             currentModelSize = 1 + repetitions + (1 + repetitions) * inputLength
             model = models[currentModelSize]
             input[{{1, inputLength}, {3, INPUT_SIZE}}]:random(0, 1)
@@ -172,7 +153,7 @@ if train then
         if iteration % reportingStep == 0 then
             print('After epoch ' .. iteration .. ', loss is ' .. loss)
             print('Average loss: ' .. avgLoss)
-            print('Learning rate: ' .. config.learningRate)
+            print('Length: ' .. inputLength .. ', repetitions: ' .. repetitions)
             print('Grad: ' .. gradParams:min() .. ' ' .. gradParams:max())
             print('Output:')
             print(output)
@@ -192,10 +173,10 @@ if train then
         end
     end
 
-    allLosses = torch.Tensor(allLosses):log()
-    allAvgLosses = torch.Tensor(allAvgLosses):log()
-    allAvgMinLosses = torch.Tensor(allAvgMinLosses):log()
-    allAvgMaxLosses = torch.Tensor(allAvgMaxLosses):log()
+    allLosses = torch.Tensor(allLosses):log():div(math.log(10))
+    allAvgLosses = torch.Tensor(allAvgLosses):log():div(math.log(10))
+    allAvgMinLosses = torch.Tensor(allAvgMinLosses):log():div(math.log(10))
+    allAvgMaxLosses = torch.Tensor(allAvgMaxLosses):log():div(math.log(10))
 
     x = torch.range(reportingStep, maxEpoch, reportingStep)
     yy = torch.cat(x, allAvgMinLosses, 2)
@@ -205,3 +186,46 @@ if train then
     torch.save(saveFilename, models[TEMPORAL_HORIZON])
     print('Saved model to ' .. saveFilename)
 end
+
+-- Evaluation
+
+local numEvaluations = 200
+local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
+local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
+local output
+local sumLoss = 0.0
+local sumSqrLoss = 0.0
+
+for iteration = 1, numEvaluations do
+    -- Generate random data to copy
+    input:zero()
+    inputLength = math.random(3, COPY_LENGTH) -- 3 or more
+    repetitions = math.random(1, REPEAT_TIMES)
+    currentModelSize = 1 + repetitions + (1 + repetitions) * inputLength
+    model = models[currentModelSize]
+    input[{{1, inputLength}, {3, INPUT_SIZE}}]:random(0, 1)
+    input[{{inputLength + 1, inputLength + repetitions}, 2}] = 1 -- Repeat marker
+    input[inputLength + repetitions + 1][1] = 1 -- End delimiter
+
+    local modelInput = ntm.prepareModelInput(input[{{1, currentModelSize}}], dataRead, memory, readWeights, writeWeights)
+
+    -- Forward
+    local modelOutput = model:forward(modelInput)
+    output = ntm.unpackModelOutput(modelOutput, currentModelSize)
+
+    -- Target output is the same as input
+    target:zero()
+    for i = 1, repetitions do
+        target[{{2 + repetitions + i * inputLength, 1 + repetitions + (1 + i) * inputLength}}] = input[{{1, inputLength}, {3, INPUT_SIZE}}]
+    end
+
+    local loss = criterion:forward(output, target[{{1, currentModelSize}}])
+    sumLoss = sumLoss + loss
+    sumSqrLoss = sumSqrLoss + loss*loss
+end
+
+avgLoss = sumLoss / numEvaluations
+avgSqrLoss = sumSqrLoss / numEvaluations
+stdDevLoss = math.sqrt(avgSqrLoss - avgLoss*avgLoss)
+
+print('Loss: ' .. avgLoss .. ' +- ' .. stdDevLoss)
