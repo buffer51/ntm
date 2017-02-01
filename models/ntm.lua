@@ -37,7 +37,7 @@ local function NTMCell(input_size, output_size, memory_slots, memory_size, contr
     }
 
     -- Controller
-    local controllerOutput = nn.Tanh()(nn.CAddTable(){
+    local controllerOutput = nn.ReLU()(nn.CAddTable(){
         nn.Linear(input_size, controller_size)(input),
         nn.Linear(memory_size, controller_size)(dataReadP)
     })
