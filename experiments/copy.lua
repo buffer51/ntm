@@ -177,12 +177,16 @@ end
 
 -- Evaluation
 
-local numEvaluations = 200
+local numEvaluations = 3000
 local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
 local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
 local output
-local sumLoss = 0.0
-local sumSqrLoss = 0.0
+
+local BCELoss = nn.BCECriterion()
+local MSELoss = nn.MSECriterion()
+
+local sumLoss = torch.Tensor(3):zero() -- BCE, MSE & hard error
+local sumSqrLoss = torch.Tensor(3):zero()
 
 for iteration = 1, numEvaluations do
     -- Generate random data to copy
@@ -203,13 +207,24 @@ for iteration = 1, numEvaluations do
     target:zero()
     target[{{inputLength + 2, 1 + 2 * inputLength}}] = input[{{1, inputLength}, {2, INPUT_SIZE}}]
 
-    local loss = criterion:forward(output, target[{{1, currentModelSize}}])
-    sumLoss = sumLoss + loss
-    sumSqrLoss = sumSqrLoss + loss*loss
+    local loss = BCELoss:forward(output, target[{{1, currentModelSize}}])
+    sumLoss[1] = sumLoss[1] + loss
+    sumSqrLoss[1] = sumSqrLoss[1] + loss*loss
+
+    local loss = MSELoss:forward(output, target[{{1, currentModelSize}}])
+    sumLoss[2] = sumLoss[2] + loss
+    sumSqrLoss[2] = sumSqrLoss[2] + loss*loss
+
+    local loss = MSELoss:forward(output:gt(0.5):double(), target[{{1, currentModelSize}}])
+    sumLoss[3] = sumLoss[3] + loss
+    sumSqrLoss[3] = sumSqrLoss[3] + loss*loss
 end
 
-avgLoss = sumLoss / numEvaluations
-avgSqrLoss = sumSqrLoss / numEvaluations
-stdDevLoss = math.sqrt(avgSqrLoss - avgLoss*avgLoss)
+local avgLoss = sumLoss:div(numEvaluations)
+local avgSqrLoss = sumSqrLoss:div(numEvaluations)
+local stdDevLoss = (avgSqrLoss - avgLoss:cmul(avgLoss)):sqrt()
 
-print('Loss: ' .. avgLoss .. ' +- ' .. stdDevLoss)
+print('On ' .. numEvaluations .. ' evaluations:')
+print('BCE: ' .. avgLoss[1] .. ' +- ' .. stdDevLoss[1])
+print('MSE: ' .. avgLoss[2] .. ' +- ' .. stdDevLoss[2])
+print('Hard error: ' .. avgLoss[3] .. ' +- ' .. stdDevLoss[3])
