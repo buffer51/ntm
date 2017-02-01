@@ -27,7 +27,7 @@ function file_exists(filename)
 end
 
 -- Task parameters
-local COPY_SIZE = 1 -- Width of copied sequences
+local COPY_SIZE = 4 -- Width of copied sequences
 local COPY_LENGTH = 5 -- Maximum length of copied sequences
 
 -- Control variables
@@ -48,7 +48,7 @@ local TEMPORAL_HORIZON = 1 + 2 * COPY_LENGTH
 math.randomseed(os.time())
 
 local dataRead = torch.Tensor(MEMORY_SIZE):zero()
-local memory = torch.Tensor(MEMORY_SLOTS, MEMORY_SIZE):zero()
+local memory = torch.Tensor(MEMORY_SLOTS, MEMORY_SIZE):fill(1e-6)
 -- Initialize read/write weights to a vector that stimulates
 -- reading/writing at slot 1 first
 local readWeights = torch.Tensor(MEMORY_SLOTS):zero()
@@ -79,21 +79,7 @@ if train then
         alpha = 0.9
     }
 
-    -- Type of training to use
-    local incremental = true -- If true, will train on sequences of increasing length
-
-    local maxEpoch, maxLength
-    if incremental then
-        iterationsPerIncrement = 4000
-        lastChange = 0
-
-        -- Start with sequences of length 1, and slowly increase
-        maxLength = 1
-        maxEpoch = iterationsPerIncrement * COPY_LENGTH * (COPY_LENGTH + 1) / 2
-    else
-        maxLength = COPY_LENGTH
-        maxEpoch = 60000
-    end
+    local maxEpoch = 100000
 
     local params, gradParams = models[TEMPORAL_HORIZON]:getParameters()
     local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
@@ -113,17 +99,12 @@ if train then
     local allAvgMaxLosses = {}
 
     for iteration = 1, maxEpoch do
-        if incremental and ((iteration - lastChange) % (maxLength * iterationsPerIncrement) == 0) then
-            lastChange = iteration
-            maxLength = math.min(COPY_LENGTH, maxLength + 1)
-        end
-
         function feval(params)
             gradParams:zero()
 
             -- Generate random data to copy
             input:zero()
-            local inputLength = math.random(1, maxLength)
+            inputLength = math.random(1, COPY_LENGTH)
             currentModelSize = 1 + 2 * inputLength
             model = models[currentModelSize]
             input[{{1, inputLength}, {2, INPUT_SIZE}}]:random(0, 1)
@@ -160,7 +141,7 @@ if train then
         if iteration % reportingStep == 0 then
             print('After epoch ' .. iteration .. ', loss is ' .. loss)
             print('Average loss: ' .. avgLoss)
-            print('Learning rate: ' .. config.learningRate)
+            print('Length: ' .. inputLength)
             print('Grad: ' .. gradParams:min() .. ' ' .. gradParams:max())
             print('Output:')
             print(output)
@@ -180,10 +161,10 @@ if train then
         end
     end
 
-    allLosses = torch.Tensor(allLosses):log()
-    allAvgLosses = torch.Tensor(allAvgLosses):log()
-    allAvgMinLosses = torch.Tensor(allAvgMinLosses):log()
-    allAvgMaxLosses = torch.Tensor(allAvgMaxLosses):log()
+    allLosses = torch.Tensor(allLosses):log():div(math.log(10))
+    allAvgLosses = torch.Tensor(allAvgLosses):log():div(math.log(10))
+    allAvgMinLosses = torch.Tensor(allAvgMinLosses):log():div(math.log(10))
+    allAvgMaxLosses = torch.Tensor(allAvgMaxLosses):log():div(math.log(10))
 
     x = torch.range(reportingStep, maxEpoch, reportingStep)
     yy = torch.cat(x, allAvgMinLosses, 2)
