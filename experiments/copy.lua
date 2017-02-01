@@ -31,8 +31,8 @@ local COPY_SIZE = 4 -- Width of copied sequences
 local COPY_LENGTH = 5 -- Maximum length of copied sequences
 
 -- Control variables
-local train = true -- Set to true for training, false for evaluation only
-local loadFilename = 'saves/to_load.mdl' -- If not nil, will be loaded (for evaluation or further training)
+local train = false -- Set to true for training, false for evaluation only
+local loadFilename = 'pretrained/copy.mdl' -- If not nil, will be loaded (for evaluation or further training)
 local saveFilename = 'saves/copy.mdl' -- Filename of saves
 
 -- NTM Parameters
@@ -173,58 +173,98 @@ if train then
 
     torch.save(saveFilename, models[TEMPORAL_HORIZON])
     print('Saved model to ' .. saveFilename)
+else
+  local params, gradParams = models[TEMPORAL_HORIZON]:getParameters()
+  local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
+  local delta = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
+  local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
+  local output
+
+  input:zero()
+  inputLength = 5
+  currentModelSize = 1 + 2 * inputLength
+  model = models[currentModelSize]
+  input[{{1, inputLength}, {2, INPUT_SIZE}}]:random(0, 1)
+  input[inputLength + 1][1] = 1 -- end delimiter
+
+  local modelInput = ntm.prepareModelInput(input[{{1, currentModelSize}}], dataRead, memory, readWeights, writeWeights)
+
+  -- Forward
+  local modelOutput = model:forward(modelInput)
+  output = ntm.unpackModelOutput(modelOutput, currentModelSize)
+
+  -- Target output is the same as input
+  target:zero()
+  target[{{inputLength + 2, 1 + 2 * inputLength}}] = input[{{1, inputLength}, {2, INPUT_SIZE}}]
+  print(target[{{1, currentModelSize}}])
+  print(output)
+
+
+  gnuplot.setterm('png')
+  gnuplot.pngfigure('test.png')
+  gnuplot.raw("set output 'visuals/copy2.png'") -- set output before multiplot
+  gnuplot.raw('set multiplot layout 1,2')
+
+  gnuplot.raw("set title 'Target'")
+  gnuplot.imagesc(target[{{1, currentModelSize}}],'color')
+
+  gnuplot.raw("set title 'Output'")
+  gnuplot.imagesc(output,'color')
+
+  gnuplot.raw('unset multiplot')
+
 end
 
--- Evaluation
-
-local numEvaluations = 3000
-local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
-local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
-local output
-
-local BCELoss = nn.BCECriterion()
-local MSELoss = nn.MSECriterion()
-
-local sumLoss = torch.Tensor(3):zero() -- BCE, MSE & hard error
-local sumSqrLoss = torch.Tensor(3):zero()
-
-for iteration = 1, numEvaluations do
-    -- Generate random data to copy
-    input:zero()
-    local inputLength = math.random(1, COPY_LENGTH)
-    local currentModelSize = 1 + 2 * inputLength
-    model = models[currentModelSize]
-    input[{{1, inputLength}, {2, INPUT_SIZE}}]:random(0, 1)
-    input[inputLength + 1][1] = 1 -- end delimiter
-
-    local modelInput = ntm.prepareModelInput(input[{{1, currentModelSize}}], dataRead, memory, readWeights, writeWeights)
-
-    -- Forward
-    local modelOutput = model:forward(modelInput)
-    output = ntm.unpackModelOutput(modelOutput, currentModelSize)
-
-    -- Target output is the same as input
-    target:zero()
-    target[{{inputLength + 2, 1 + 2 * inputLength}}] = input[{{1, inputLength}, {2, INPUT_SIZE}}]
-
-    local loss = BCELoss:forward(output, target[{{1, currentModelSize}}])
-    sumLoss[1] = sumLoss[1] + loss
-    sumSqrLoss[1] = sumSqrLoss[1] + loss*loss
-
-    local loss = MSELoss:forward(output, target[{{1, currentModelSize}}])
-    sumLoss[2] = sumLoss[2] + loss
-    sumSqrLoss[2] = sumSqrLoss[2] + loss*loss
-
-    local loss = MSELoss:forward(output:gt(0.5):double(), target[{{1, currentModelSize}}])
-    sumLoss[3] = sumLoss[3] + loss
-    sumSqrLoss[3] = sumSqrLoss[3] + loss*loss
-end
-
-local avgLoss = sumLoss:div(numEvaluations)
-local avgSqrLoss = sumSqrLoss:div(numEvaluations)
-local stdDevLoss = (avgSqrLoss - avgLoss:cmul(avgLoss)):sqrt()
-
-print('On ' .. numEvaluations .. ' evaluations:')
-print('BCE: ' .. avgLoss[1] .. ' +- ' .. stdDevLoss[1])
-print('MSE: ' .. avgLoss[2] .. ' +- ' .. stdDevLoss[2])
-print('Hard error: ' .. avgLoss[3] .. ' +- ' .. stdDevLoss[3])
+-- -- Evaluation
+--
+-- local numEvaluations = 3000
+-- local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
+-- local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
+-- local output
+--
+-- local BCELoss = nn.BCECriterion()
+-- local MSELoss = nn.MSECriterion()
+--
+-- local sumLoss = torch.Tensor(3):zero() -- BCE, MSE & hard error
+-- local sumSqrLoss = torch.Tensor(3):zero()
+--
+-- for iteration = 1, numEvaluations do
+--     -- Generate random data to copy
+--     input:zero()
+--     local inputLength = math.random(1, COPY_LENGTH)
+--     local currentModelSize = 1 + 2 * inputLength
+--     model = models[currentModelSize]
+--     input[{{1, inputLength}, {2, INPUT_SIZE}}]:random(0, 1)
+--     input[inputLength + 1][1] = 1 -- end delimiter
+--
+--     local modelInput = ntm.prepareModelInput(input[{{1, currentModelSize}}], dataRead, memory, readWeights, writeWeights)
+--
+--     -- Forward
+--     local modelOutput = model:forward(modelInput)
+--     output = ntm.unpackModelOutput(modelOutput, currentModelSize)
+--
+--     -- Target output is the same as input
+--     target:zero()
+--     target[{{inputLength + 2, 1 + 2 * inputLength}}] = input[{{1, inputLength}, {2, INPUT_SIZE}}]
+--
+--     local loss = BCELoss:forward(output, target[{{1, currentModelSize}}])
+--     sumLoss[1] = sumLoss[1] + loss
+--     sumSqrLoss[1] = sumSqrLoss[1] + loss*loss
+--
+--     local loss = MSELoss:forward(output, target[{{1, currentModelSize}}])
+--     sumLoss[2] = sumLoss[2] + loss
+--     sumSqrLoss[2] = sumSqrLoss[2] + loss*loss
+--
+--     local loss = MSELoss:forward(output:gt(0.5):double(), target[{{1, currentModelSize}}])
+--     sumLoss[3] = sumLoss[3] + loss
+--     sumSqrLoss[3] = sumSqrLoss[3] + loss*loss
+-- end
+--
+-- local avgLoss = sumLoss:div(numEvaluations)
+-- local avgSqrLoss = sumSqrLoss:div(numEvaluations)
+-- local stdDevLoss = (avgSqrLoss - avgLoss:cmul(avgLoss)):sqrt()
+--
+-- print('On ' .. numEvaluations .. ' evaluations:')
+-- print('BCE: ' .. avgLoss[1] .. ' +- ' .. stdDevLoss[1])
+-- print('MSE: ' .. avgLoss[2] .. ' +- ' .. stdDevLoss[2])
+-- print('Hard error: ' .. avgLoss[3] .. ' +- ' .. stdDevLoss[3])
