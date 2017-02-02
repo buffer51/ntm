@@ -59,14 +59,14 @@ local writeWeights = readWeights:clone()
 local criterion = nn.BCECriterion()
 
 -- Create the models
-models = ntm.NTM(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE, TEMPORAL_HORIZON)
+model = ntm.NTMCell(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE)
 
 -- Load existing model, if set
 if loadFilename and file_exists(loadFilename) then
     print('Loaded model from ' .. loadFilename)
     temp = torch.load(loadFilename)
     local tempParams, _ = temp:getParameters()
-    local modelParams, _ = models[TEMPORAL_HORIZON]:getParameters()
+    local modelParams, _ = model:getParameters()
     modelParams:copy(tempParams)
 end
 
@@ -174,45 +174,87 @@ if train then
     torch.save(saveFilename, models[TEMPORAL_HORIZON])
     print('Saved model to ' .. saveFilename)
 else
-  local params, gradParams = models[TEMPORAL_HORIZON]:getParameters()
-  local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
-  local delta = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
-  local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
-  local output
+    local params, gradParams = model:getParameters()
+    local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
+    local output = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
+    local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
 
-  input:zero()
-  inputLength = 5
-  currentModelSize = 1 + 2 * inputLength
-  model = models[currentModelSize]
-  input[{{1, inputLength}, {2, INPUT_SIZE}}]:random(0, 1)
-  input[inputLength + 1][1] = 1 -- end delimiter
+    local memoryAtMiddle = memory:clone():zero()
+    local allReadWeights = torch.Tensor(TEMPORAL_HORIZON, MEMORY_SLOTS):zero()
+    local allWriteWeights = torch.Tensor(TEMPORAL_HORIZON, MEMORY_SLOTS):zero()
 
-  local modelInput = ntm.prepareModelInput(input[{{1, currentModelSize}}], dataRead, memory, readWeights, writeWeights)
+    inputLength = COPY_LENGTH
+    currentModelSize = 1 + 2 * inputLength
+    input[{{1, inputLength}, {2, INPUT_SIZE}}]:random(0, 1)
+    input[inputLength + 1][1] = 1 -- end delimiter
 
-  -- Forward
-  local modelOutput = model:forward(modelInput)
-  output = ntm.unpackModelOutput(modelOutput, currentModelSize)
+    -- Target output is the same as input
+    target[{{inputLength + 2, 1 + 2 * inputLength}}] = input[{{1, inputLength}, {2, INPUT_SIZE}}]
 
-  -- Target output is the same as input
-  target:zero()
-  target[{{inputLength + 2, 1 + 2 * inputLength}}] = input[{{1, inputLength}, {2, INPUT_SIZE}}]
-  print(target[{{1, currentModelSize}}])
-  print(output)
+    currentDataRead = dataRead:clone()
+    currentMemory = memory:clone()
+    currentReadWeights = readWeights:clone()
+    currentWriteWeights = writeWeights:clone()
+    for i = 1, currentModelSize do
+        out = model:forward({input[i], currentDataRead, currentMemory, currentReadWeights, currentWriteWeights})
+        output[i] = out[1]
+        currentDataRead = out[2]
+        currentMemory = out[3]
+        currentReadWeights = out[4]
+        currentWriteWeights = out[5]
 
+        allReadWeights[i] = currentReadWeights
+        allWriteWeights[i] = currentWriteWeights
 
-  gnuplot.setterm('png')
-  gnuplot.pngfigure('test.png')
-  gnuplot.raw("set output 'visuals/copy2.png'") -- set output before multiplot
-  gnuplot.raw('set multiplot layout 1,2')
+        if i == inputLength then
+            memoryAtMiddle:copy(currentMemory)
+        end
+    end
 
-  gnuplot.raw("set title 'Target'")
-  gnuplot.imagesc(target[{{1, currentModelSize}}],'color')
+    print(target[{{1, currentModelSize}}])
+    print(output)
 
-  gnuplot.raw("set title 'Output'")
-  gnuplot.imagesc(output,'color')
+    -- Output / Target plot
+    gnuplot.setterm('png')
+    gnuplot.pngfigure('test.png')
+    gnuplot.raw("set output 'visuals/copy2.png'") -- set output before multiplot
+    gnuplot.raw('set multiplot layout 1,2')
 
-  gnuplot.raw('unset multiplot')
+    gnuplot.raw("set title 'Target'")
+    gnuplot.imagesc(target[{{1, currentModelSize}}],'color')
 
+    gnuplot.raw("set title 'Output'")
+    gnuplot.imagesc(output,'color')
+
+    gnuplot.raw('unset multiplot')
+
+    -- Memory at middle
+    gnuplot.setterm('png')
+    gnuplot.pngfigure('test.png')
+    gnuplot.raw("set output 'visuals/memory.png'") -- set output before multiplot
+    gnuplot.raw('set multiplot layout 1,2')
+
+    gnuplot.raw("set title 'Input'")
+    gnuplot.imagesc(input[{{1, currentModelSize}, {2, INPUT_SIZE}}],'color')
+
+    gnuplot.raw("set title 'Memory after input'")
+    gnuplot.imagesc(memoryAtMiddle,'color')
+
+    gnuplot.raw('unset multiplot')
+
+    -- Read / Write weights
+    gnuplot.setterm('png')
+    gnuplot.pngfigure('test.png')
+    gnuplot.raw("set output 'visuals/weights.png'") -- set output before multiplot
+    gnuplot.raw('set multiplot layout 1,2')
+
+    gnuplot.raw("set title 'Read weights'")
+    gnuplot.imagesc(allReadWeights, 'color')
+
+    gnuplot.raw("set title 'Write weights'")
+    gnuplot.imagesc(allWriteWeights, 'color')
+
+    gnuplot.raw('unset multiplot')
 end
 
 -- -- Evaluation
