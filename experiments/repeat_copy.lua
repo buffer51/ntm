@@ -39,8 +39,8 @@ local COPY_LENGTH = 5 -- Maximum length of copied sequences
 local REPEAT_TIMES = 3 -- Maximum number of repetitions
 
 -- Control variables
-local train = true -- Set to true for training, false for evaluation only
-local loadFilename = 'save/to_load.mdl' -- If not nil, will be loaded (for evaluation or further training)
+local train = false -- Set to true for training, false for evaluation only
+local loadFilename = 'pretrained/repeat_copy.mdl' -- If not nil, will be loaded (for evaluation or further training)
 local saveFilename = 'saves/repeat_copy.mdl' -- Filename of saves
 
 -- NTM Parameters
@@ -67,14 +67,14 @@ local writeWeights = readWeights:clone()
 local criterion = nn.BCECriterion()
 
 -- Create the models
-models = ntm.NTM(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE, TEMPORAL_HORIZON)
+model = ntm.NTMCell(INPUT_SIZE, OUTPUT_SIZE, MEMORY_SLOTS, MEMORY_SIZE, CONTROLLER_SIZE, SHIFT_SIZE)
 
 -- Load existing model, if set
 if loadFilename and file_exists(loadFilename) then
     print('Loaded model from ' .. loadFilename)
     temp = torch.load(loadFilename)
     local tempParams, _ = temp:getParameters()
-    local modelParams, _ = models[TEMPORAL_HORIZON]:getParameters()
+    local modelParams, _ = model:getParameters()
     modelParams:copy(tempParams)
 end
 
@@ -185,63 +185,149 @@ if train then
 
     torch.save(saveFilename, models[TEMPORAL_HORIZON])
     print('Saved model to ' .. saveFilename)
-end
+else
+    local params, gradParams = model:getParameters()
+    local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
+    local output = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
+    local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
 
--- Evaluation
+    local memoryAtMiddle = memory:clone():zero()
+    local allReadWeights = torch.Tensor(TEMPORAL_HORIZON, MEMORY_SLOTS):zero()
+    local allWriteWeights = torch.Tensor(TEMPORAL_HORIZON, MEMORY_SLOTS):zero()
 
-local numEvaluations = 3000
-local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
-local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
-local output
-
-local BCELoss = nn.BCECriterion()
-local MSELoss = nn.MSECriterion()
-
-local sumLoss = torch.Tensor(3):zero() -- BCE, MSE & hard error
-local sumSqrLoss = torch.Tensor(3):zero()
-
-
-for iteration = 1, numEvaluations do
-    -- Generate random data to copy
-    input:zero()
-    inputLength = math.random(3, COPY_LENGTH) -- 3 or more
-    repetitions = math.random(1, REPEAT_TIMES)
+    inputLength = COPY_LENGTH
+    repetitions = REPEAT_TIMES
     currentModelSize = 1 + repetitions + (1 + repetitions) * inputLength
-    model = models[currentModelSize]
     input[{{1, inputLength}, {3, INPUT_SIZE}}]:random(0, 1)
     input[{{inputLength + 1, inputLength + repetitions}, 2}] = 1 -- Repeat marker
     input[inputLength + repetitions + 1][1] = 1 -- End delimiter
 
-    local modelInput = ntm.prepareModelInput(input[{{1, currentModelSize}}], dataRead, memory, readWeights, writeWeights)
-
-    -- Forward
-    local modelOutput = model:forward(modelInput)
-    output = ntm.unpackModelOutput(modelOutput, currentModelSize)
-
     -- Target output is the same as input
-    target:zero()
     for i = 1, repetitions do
         target[{{2 + repetitions + i * inputLength, 1 + repetitions + (1 + i) * inputLength}}] = input[{{1, inputLength}, {3, INPUT_SIZE}}]
     end
 
-    local loss = BCELoss:forward(output, target[{{1, currentModelSize}}])
-    sumLoss[1] = sumLoss[1] + loss
-    sumSqrLoss[1] = sumSqrLoss[1] + loss*loss
+    currentDataRead = dataRead:clone()
+    currentMemory = memory:clone()
+    currentReadWeights = readWeights:clone()
+    currentWriteWeights = writeWeights:clone()
+    for i = 1, currentModelSize do
+        out = model:forward({input[i], currentDataRead, currentMemory, currentReadWeights, currentWriteWeights})
+        output[i] = out[1]
+        currentDataRead = out[2]
+        currentMemory = out[3]
+        currentReadWeights = out[4]
+        currentWriteWeights = out[5]
 
-    local loss = MSELoss:forward(output, target[{{1, currentModelSize}}])
-    sumLoss[2] = sumLoss[2] + loss
-    sumSqrLoss[2] = sumSqrLoss[2] + loss*loss
+        allReadWeights[i] = currentReadWeights
+        allWriteWeights[i] = currentWriteWeights
 
-    local loss = MSELoss:forward(output:gt(0.5):double(), target[{{1, currentModelSize}}])
-    sumLoss[3] = sumLoss[3] + loss
-    sumSqrLoss[3] = sumSqrLoss[3] + loss*loss
+        if i == inputLength then
+            memoryAtMiddle:copy(currentMemory)
+        end
+    end
+
+    print(target[{{1, currentModelSize}}])
+    print(output)
+
+    -- Output / Target plot
+    gnuplot.setterm('png')
+    gnuplot.pngfigure('test.png')
+    gnuplot.raw("set output 'visuals/repeat.png'") -- set output before multiplot
+    gnuplot.raw('set multiplot layout 1,2')
+
+    gnuplot.raw("set title 'Target'")
+    gnuplot.imagesc(target[{{1, currentModelSize}}],'color')
+
+    gnuplot.raw("set title 'Output'")
+    gnuplot.imagesc(output,'color')
+
+    gnuplot.raw('unset multiplot')
+
+    -- Memory at middle
+    gnuplot.setterm('png')
+    gnuplot.pngfigure('test.png')
+    gnuplot.raw("set output 'visuals/repeat_memory.png'") -- set output before multiplot
+    gnuplot.raw('set multiplot layout 1,2')
+
+    gnuplot.raw("set title 'Input'")
+    gnuplot.imagesc(input[{{1, currentModelSize}, {3, INPUT_SIZE}}],'color')
+
+    gnuplot.raw("set title 'Memory after input'")
+    gnuplot.imagesc(memoryAtMiddle,'color')
+
+    gnuplot.raw('unset multiplot')
+
+    -- Read / Write weights
+    gnuplot.setterm('png')
+    gnuplot.pngfigure('test.png')
+    gnuplot.raw("set output 'visuals/repeat_weights.png'") -- set output before multiplot
+    gnuplot.raw('set multiplot layout 1,2')
+
+    gnuplot.raw("set title 'Read weights'")
+    gnuplot.imagesc(allReadWeights, 'color')
+
+    gnuplot.raw("set title 'Write weights'")
+    gnuplot.imagesc(allWriteWeights, 'color')
+
+    gnuplot.raw('unset multiplot')
 end
 
-local avgLoss = sumLoss:div(numEvaluations)
-local avgSqrLoss = sumSqrLoss:div(numEvaluations)
-local stdDevLoss = (avgSqrLoss - avgLoss:cmul(avgLoss)):sqrt()
-
-print('On ' .. numEvaluations .. ' evaluations:')
-print('BCE: ' .. avgLoss[1] .. ' +- ' .. stdDevLoss[1])
-print('MSE: ' .. avgLoss[2] .. ' +- ' .. stdDevLoss[2])
-print('Hard error: ' .. avgLoss[3] .. ' +- ' .. stdDevLoss[3])
+-- -- Evaluation
+--
+-- local numEvaluations = 3000
+-- local input = torch.Tensor(TEMPORAL_HORIZON, INPUT_SIZE):zero()
+-- local target = torch.Tensor(TEMPORAL_HORIZON, OUTPUT_SIZE):zero()
+-- local output
+--
+-- local BCELoss = nn.BCECriterion()
+-- local MSELoss = nn.MSECriterion()
+--
+-- local sumLoss = torch.Tensor(3):zero() -- BCE, MSE & hard error
+-- local sumSqrLoss = torch.Tensor(3):zero()
+--
+--
+-- for iteration = 1, numEvaluations do
+--     -- Generate random data to copy
+--     input:zero()
+--     inputLength = math.random(3, COPY_LENGTH) -- 3 or more
+--     repetitions = math.random(1, REPEAT_TIMES)
+--     currentModelSize = 1 + repetitions + (1 + repetitions) * inputLength
+--     model = models[currentModelSize]
+--     input[{{1, inputLength}, {3, INPUT_SIZE}}]:random(0, 1)
+--     input[{{inputLength + 1, inputLength + repetitions}, 2}] = 1 -- Repeat marker
+--     input[inputLength + repetitions + 1][1] = 1 -- End delimiter
+--
+--     local modelInput = ntm.prepareModelInput(input[{{1, currentModelSize}}], dataRead, memory, readWeights, writeWeights)
+--
+--     -- Forward
+--     local modelOutput = model:forward(modelInput)
+--     output = ntm.unpackModelOutput(modelOutput, currentModelSize)
+--
+--     -- Target output is the same as input
+--     target:zero()
+--     for i = 1, repetitions do
+--         target[{{2 + repetitions + i * inputLength, 1 + repetitions + (1 + i) * inputLength}}] = input[{{1, inputLength}, {3, INPUT_SIZE}}]
+--     end
+--
+--     local loss = BCELoss:forward(output, target[{{1, currentModelSize}}])
+--     sumLoss[1] = sumLoss[1] + loss
+--     sumSqrLoss[1] = sumSqrLoss[1] + loss*loss
+--
+--     local loss = MSELoss:forward(output, target[{{1, currentModelSize}}])
+--     sumLoss[2] = sumLoss[2] + loss
+--     sumSqrLoss[2] = sumSqrLoss[2] + loss*loss
+--
+--     local loss = MSELoss:forward(output:gt(0.5):double(), target[{{1, currentModelSize}}])
+--     sumLoss[3] = sumLoss[3] + loss
+--     sumSqrLoss[3] = sumSqrLoss[3] + loss*loss
+-- end
+--
+-- local avgLoss = sumLoss:div(numEvaluations)
+-- local avgSqrLoss = sumSqrLoss:div(numEvaluations)
+-- local stdDevLoss = (avgSqrLoss - avgLoss:cmul(avgLoss)):sqrt()
+--
+-- print('On ' .. numEvaluations .. ' evaluations:')
+-- print('BCE: ' .. avgLoss[1] .. ' +- ' .. stdDevLoss[1])
+-- print('MSE: ' .. avgLoss[2] .. ' +- ' .. stdDevLoss[2])
+-- print('Hard error: ' .. avgLoss[3] .. ' +- ' .. stdDevLoss[3])

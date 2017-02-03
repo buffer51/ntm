@@ -6,4 +6,4 @@ model*.svg
 # Saved models
 *.mdl*
 
-visuals
+experiments/visuals/*.png

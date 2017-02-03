@@ -217,7 +217,7 @@ else
     -- Output / Target plot
     gnuplot.setterm('png')
     gnuplot.pngfigure('test.png')
-    gnuplot.raw("set output 'visuals/copy2.png'") -- set output before multiplot
+    gnuplot.raw("set output 'visuals/copy.png'") -- set output before multiplot
     gnuplot.raw('set multiplot layout 1,2')
 
     gnuplot.raw("set title 'Target'")
@@ -231,7 +231,7 @@ else
     -- Memory at middle
     gnuplot.setterm('png')
     gnuplot.pngfigure('test.png')
-    gnuplot.raw("set output 'visuals/memory.png'") -- set output before multiplot
+    gnuplot.raw("set output 'visuals/copy_memory.png'") -- set output before multiplot
     gnuplot.raw('set multiplot layout 1,2')
 
     gnuplot.raw("set title 'Input'")
@@ -245,7 +245,7 @@ else
     -- Read / Write weights
     gnuplot.setterm('png')
     gnuplot.pngfigure('test.png')
-    gnuplot.raw("set output 'visuals/weights.png'") -- set output before multiplot
+    gnuplot.raw("set output 'visuals/copy_weights.png'") -- set output before multiplot
     gnuplot.raw('set multiplot layout 1,2')
 
     gnuplot.raw("set title 'Read weights'")
