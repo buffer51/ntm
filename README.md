@@ -10,9 +10,9 @@ The `modules` directory contains utility functions
 
 Experiments:
 - ✅ basic copy
-- 📦 copy with longer sequences than trained on
-- 📦 repeat copy with fixed size
-- 📦 repeat copy with random size
+- ✅ copy with longer sequences than trained on
+- ✅ repeat copy with fixed size
+- ✅ repeat copy with random size
 - 📦 sorting
 
 Controller:
